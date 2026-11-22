@@ -1,0 +1,476 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <meta name="theme-color" content="#173b54" />
+    <meta
+      name="description"
+      content="Daniel Alves measures the IPv4 bandwidth of an Asterisk trunk using SIP over TCP with RTP and SIP over TLS with SRTP."
+    />
+    <title>Asterisk Trunk with TLS and SRTP Support | Daniel Alves · VoIP I</title>
+    <link rel="stylesheet" href="assets/report.css" />
+    <script defer src="assets/report.js"></script>
+  </head>
+  <body id="top">
+    <a class="skip" href="#main">Skip to report</a>
+    <header class="top">
+      <div class="mast shell">
+        <a href="#top" class="brand" aria-label="VoIP I, report home"
+          ><span class="brandmark" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></span> VoIP I
+          <span>VŠB–TUO</span></a
+        >
+        <nav aria-label="Report sections" class="nav">
+          <a href="#introduction">Overview</a><a href="#setup">Trunk setup</a><a href="#evidence">Evidence</a
+          ><a href="#results">Results</a><a class="download-link" href="#downloads">Downloads</a>
+        </nav>
+      </div>
+    </header>
+    <main id="main">
+      <section class="hero" aria-labelledby="project-title">
+        <div class="shell hero-grid">
+          <div class="hero-copy">
+            <p class="author">Daniel Alves &nbsp;/&nbsp; VoIP I semester project, Topic 1</p>
+            <h1 id="project-title">Asterisk Trunk with TLS and SRTP Support</h1>
+            <p>
+              What does encryption add to a voice call? Two Asterisk servers exchanged the same pair of tones
+              while tcpdump recorded the signaling and every audio packet on their trunk.
+            </p>
+            <div class="actions">
+              <a class="button" href="#results">View measurements</a
+              ><a class="secondary" href="#setup">Explore the setup</a>
+            </div>
+          </div>
+          <figure class="scope">
+            <div class="scope-head">
+              <strong>Audio on the trunk</strong><small>Plain RTP · 8 kHz PCMU</small>
+            </div>
+            <img
+              src="assets/tone-traces.png"
+              width="1071"
+              height="476"
+              alt="Two decoded audio traces show about 4.4 and 6.6 cycles over ten milliseconds. The vertical scales are fractions of full amplitude."
+            />
+            <div class="players">
+              <button type="button" class="play" aria-pressed="false" data-tone="a">
+                Listen to A · 440 Hz</button
+              ><button type="button" class="play" aria-pressed="false" data-tone="b">
+                Listen to B · 660 Hz
+              </button>
+            </div>
+            <figcaption>
+              The upper trace is A calling B. The lower trace is B answering. Each button plays two seconds
+              from the first baseline recording.
+            </figcaption>
+            <audio id="tone" preload="none" aria-label="Recorded RTP tone"></audio>
+          </figure>
+        </div>
+        <div class="hero-result">
+          <div class="shell"><p><strong>+5% steady-media bandwidth.</strong> The combined IPv4 rate averaged 160 kb/s with RTP and 168 kb/s with SRTP.</p></div>
+        </div>
+      </section>
+
+      <section id="introduction" class="chapter">
+        <div class="shell intro">
+          <h2>What the trunk protects</h2>
+          <div class="prose">
+            <h3>Introduction</h3>
+            <p>
+              A private branch exchange (PBX) routes telephone calls. A trunk carries calls between exchanges.
+              Here A dials extension 200 on B. SIP sets up the call, SDP describes the codec and listening
+              ports, and RTP sends the sound in small UDP packets. The secure profile wraps SIP in TLS and
+              protects the audio with SRTP. Each flow has its own evidence and bandwidth cost.
+              <a href="#ref-sip">SIP and SDP standards</a>
+            </p>
+            <h3>Current practice</h3>
+            <p>
+              Asterisk’s PJSIP channel driver supports both SDES and DTLS media keying. SDES carries SRTP keys
+              inside the SDP offer and answer, making authenticated, confidential signaling essential. The
+              laboratory uses this approach on a single trusted PBX-to-PBX hop. Browser-based WebRTC uses
+              DTLS-SRTP for media key establishment. The choice of keying method affects what a packet trace
+              can establish. <a href="#ref-pjsip">Asterisk</a>, <a href="#ref-sdes">RFC 4568</a>,
+              <a href="#ref-webrtc">RFC 8827</a>
+            </p>
+            <p>
+              The profile pins TLS 1.2 so that each measured connection uses the same handshake. Current IETF
+              guidance encourages TLS 1.3 when both sides support it. A different TLS version, certificate
+              chain or session-resumption policy would merit a new setup measurement.
+              <a href="#ref-tls">RFC 9325</a>
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <section id="setup" class="chapter zone">
+        <div class="shell">
+          <header class="chapter-header">
+            <h2>Trunk setup</h2>
+            <p>
+              Both ends run Asterisk certified-22.8-cert5 on the same isolated Docker bridge. The two modes
+              share the codec, dialplan and media path.
+            </p>
+          </header>
+          <figure class="topology">
+            <div class="topology-flow">
+              <div class="node"><b>PBX A</b><span>pbx-a.lab.test</span><span>172.30.76.10</span></div>
+              <div class="route">
+                SIP on TCP or TLS<span class="line" aria-hidden="true"></span>RTP or SRTP on UDP
+              </div>
+              <div class="node"><b>PBX B</b><span>pbx-b.lab.test</span><span>172.30.76.11</span></div>
+            </div>
+            <figcaption>
+              Capture at A’s <code>eth0</code>. Outgoing and incoming packets each cross this interface once.
+              Docker publishes no service ports. Both exchanges generate audio, so no softphone leg enters the
+              recording.
+            </figcaption>
+          </figure>
+          <div class="pair">
+            <article class="config">
+              <h3>Baseline trunk</h3>
+              <span class="file">work/profiles/plain.conf</span>
+              <pre><code>[link]
+type=transport
+protocol=tcp
+bind=@LOCAL_IP@:5060
+
+[media-policy](!)
+media_encryption=no</code></pre>
+              <p>
+                Port 5060 carries a readable SIP conversation. The SDP answer identifies the receiver’s audio
+                port. Capturing plain RTP allows playback of each tone.
+              </p>
+            </article>
+            <article class="config secure">
+              <h3>Secure trunk</h3>
+              <span class="file">work/profiles/secure.conf</span>
+              <pre><code>[link]
+type=transport
+protocol=tls
+bind=@LOCAL_IP@:5061
+method=tlsv1_2
+verify_server=yes
+verify_client=yes
+require_client_cert=yes
+
+[media-policy](!)
+media_encryption=sdes
+srtp_tag_32=no</code></pre>
+              <p>
+                Port 5061 carries TLS. SDES supplies the keys for SRTP through the protected SDP conversation.
+                The shared endpoint sets <code>media_encryption_optimistic=no</code> to require the selected
+                protection.
+              </p>
+            </article>
+          </div>
+          <div class="columns pad">
+            <div class="prose">
+              <h3>Place the call</h3>
+              <p>
+                The launcher originates <code>PJSIP/200@peer</code> on A. B matches A’s source address, enters
+                its <code>from-peer</code> dialplan and answers. Each side starts a tone with
+                <code>PlayTones</code>. The common endpoint selects <code>ulaw:20</code> and
+                <code>direct_media=no</code>. Asterisk records the Call-ID, codec, active security flags and
+                media counters on both channels. Both PBXs loaded <code>chan_pjsip</code>,
+                <code>res_pjsip_sdp_rtp</code> and <code>res_srtp</code>. PJPROJECT 2.15.1 reported
+                <code>PJ_HAS_SSL_SOCK=1</code> in its build options.
+              </p>
+            </div>
+            <div class="prose">
+              <h3>Authenticate the peers</h3>
+              <p>
+                A validates B’s certificate chain and the DNS name it dialed. B requires a valid client
+                certificate from the lab CA. After the handshake, B maps A’s source IP to the PJSIP endpoint.
+                Both certificates permit client and server use. This trust boundary contains only the two lab nodes.
+              </p>
+              <p>The TLS control verified B’s DNS name using A’s client identity. B rejected a client that omitted its certificate. Together with the certificate request and exchange in the captured calls, this confirms mutual TLS on the trunk. When A contacted B at its correct IP under the alternate name <code>pbx-b</code>, A rejected the server identity. <a href="downloads/verification.txt">Certificate checks</a>.</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section id="evidence" class="chapter">
+        <div class="shell">
+          <header class="chapter-header">
+            <h2>Practical demonstration</h2>
+            <p>
+              Follow the first baseline and secure calls across the same interface. Open a figure for the
+              full-resolution Wireshark view.
+            </p>
+          </header>
+          <div class="evidence-list"><figure><a class="imagebox" href="evidence/plain-sip.png" aria-label="Open full-size figure: Readable SIP offer and answer"><img loading="lazy" src="evidence/plain-sip.png" alt="Readable SIP offer and answer"></a><figcaption><strong>Readable SIP offer and answer.</strong> In baseline run 1, frame 8 is B’s <code>200 OK</code> to the INVITE. Its SDP names UDP port 10038, PCMU/8000 and a requested 20 ms packet time.</figcaption></figure><figure><a class="imagebox" href="evidence/plain-rtp.png" aria-label="Open full-size figure: RTP streams in both directions"><img loading="lazy" src="evidence/plain-rtp.png" alt="RTP streams in both directions"></a><figcaption><strong>RTP streams in both directions.</strong> The baseline RTP Streams view identifies A’s stream by SSRC <code>0x59a87ec6</code> and B’s by <code>0x18e32ab7</code>. The rows cover the whole call. The measurement uses only the inner 50 seconds.</figcaption></figure><figure><a class="imagebox" href="evidence/secure-tls.png" aria-label="Open full-size figure: TLS certificate exchange"><img loading="lazy" src="evidence/secure-tls.png" alt="TLS certificate exchange"></a><figcaption><strong>TLS certificate exchange.</strong> The secure TCP stream carries a ClientHello, ServerHello, a certificate request, the client certificate exchange and encrypted application records. Frames 4, 6 and 8 show the certificate handshake.</figcaption></figure><figure><a class="imagebox" href="evidence/secure-media.png" aria-label="Open full-size figure: The separate UDP media flow"><img loading="lazy" src="evidence/secure-media.png" alt="The separate UDP media flow"></a><figcaption><strong>The separate UDP media flow.</strong> The first audio packet in secure run 1 is frame 16. A sends from port 10018 to B’s port 10020. The reverse flow uses the same pair. Decode As RTP exposes timestamps and sequence numbers. The channel readings below establish the active media protection.</figcaption></figure></div>
+          <aside class="runtime">
+            <h3>Match the secure media to the call</h3>
+            <p>
+              The TLS exchange identifies encrypted signaling. The Asterisk channel readings below establish
+              that the audio on this call negotiated SRTP. Each <code>remote</code> address is the destination
+              for that PBX’s outbound audio. The same UDP port pair carries packets in the secure capture.
+            </p>
+            <pre><code>Call-ID 429fe836-0a3d-4ab5-acae-97721e0b6010
+pbx-a channel=PJSIP/peer-00000000 tls=1 srtp=1 codec=(ulaw) remote=172.30.76.11:10020 tx=100 rx=98
+pbx-b channel=PJSIP/peer-00000000 tls=1 srtp=1 codec=(ulaw) remote=172.30.76.10:10018 tx=100 rx=101</code></pre>
+            <p>The channel reading exposes the security flags and port pair. SIP packet logging inside Asterisk is disabled because it could reveal the SDES keys after TLS decryption.</p>
+            <p>In a separate control call A offered only plain RTP over authenticated TLS. B logged an audio negotiation failure and the call did not reach the answer dialplan. The strict policy therefore rejected plaintext fallback. <a href="downloads/verification.txt">Control-call evidence</a>.</p>
+            <p><a href="downloads/run-logs.zip">Download the original call readings</a></p>
+          </aside>
+        </div>
+      </section>
+
+      <section id="method" class="chapter zone">
+        <div class="shell">
+          <header class="chapter-header">
+            <h2>Measurement method</h2>
+            <p>One accounting layer and two explicit time intervals make the comparison repeatable.</p>
+          </header>
+          <div class="columns">
+            <ol class="method">
+              <li>
+                <strong>Recreate the connection.</strong> Start both PBXs fresh, attach tcpdump to A’s
+                <code>eth0</code>, then place one A-to-B call. On each PBX the recorder sets <code>AFTER_CHECK_SECONDS=60</code>. The dialplan already waits two seconds before its channel reading, giving approximately 62 seconds of answered audio in each run.
+              </li>
+              <li>
+                <strong>Count cold signaling.</strong> Start at A’s first TCP SYN and stop just before the
+                first confirmed audio packet in either direction. Sum <code>ip.len</code> for the call’s TCP
+                stream in that interval, including TCP acknowledgments and retransmissions. A common boundary
+                works even when TLS hides the SIP answer.
+              </li>
+              <li>
+                <strong>Count steady media.</strong> Using the first audio packet as the observable origin M,
+                take <strong>[M + 5 s, M + 55 s)</strong>. Match the actual two UDP endpoints in both
+                directions. Exclude the neighboring RTCP or SRTCP ports and all TCP signaling. M follows
+                answer in this dialplan. It is a capture-based proxy for the answer time.
+              </li>
+            </ol>
+            <div class="prose">
+              <h3>IPv4 accounting</h3>
+              <p>
+                <code>ip.len</code> is the IPv4 total length in bytes. It includes IP, transport and media
+                headers plus payload. Ethernet framing, preamble and link idle time lie outside the accounting
+                layer. The mode comparison reports the observed load at this virtual network interface.
+                <a href="#ref-ip">IPv4 total length</a>
+              </p>
+              <p class="formula"><strong>Mean kb/s</strong> = 8 × Σ IP bytes ÷ 50 seconds ÷ 1,000</p>
+              <p>
+                Packets/s uses the 50-second interval. Typical size is the median IPv4 packet length in the selected direction and window. The combined row adds both
+                directions. Setup is a byte count per new call, so it stays separate from steady bitrate.
+              </p>
+            </div>
+          </div>
+          <details class="pad">
+            <summary>Capture command and reproduction files</summary>
+            <p class="pad">
+              The recording process runs inside A. Substitute the run’s output filename. The filter records
+              TCP and UDP only between the two trunk addresses.
+            </p>
+            <pre class="pad"><code>tcpdump -p -n -i eth0 -s 0 -U -w /tmp/trunk.pcap \
+  'ip and host 172.30.76.10 and host 172.30.76.11 and (tcp or udp)'</code></pre>
+            <p>
+              <a href="downloads/reproduce.md">Full reproduction procedure</a> and
+              <a href="data/runs.csv">run log with capture boundaries</a>.
+            </p>
+          </details>
+        </div>
+      </section>
+
+      <section id="results" class="chapter">
+        <div class="shell">
+          <header class="chapter-header">
+            <h2>Measured bandwidth</h2>
+            <p>On 2026-11-22 (UTC) the experiment recorded 6 fresh connections, 3 baseline and 3 secure. Each rate uses the same 50 seconds of steady audio.</p>
+          </header>
+          <figure class="graph">
+            <a class="imagebox" href="data/comparison.svg"
+              ><img
+                loading="lazy"
+                src="data/comparison.svg"
+                alt="Measured mean steady media bitrate and cold signaling bytes for the two trunk profiles. Individual values appear in the following tables."
+            /></a>
+            <figcaption>
+              The two panels use separate units. Each observation comes from one captured call.
+              <a href="data/results.csv">Per-run source data</a>.
+            </figcaption>
+          </figure>
+          <h3 class="subhead">Cold setup and steady audio by run</h3>
+          <div
+            class="scroll"
+            tabindex="0"
+            role="region"
+            aria-label="Per-run results; scroll horizontally on small screens"
+          >
+            <table><thead><tr><th scope="col">Run</th><th scope="col">Setup (B)</th><th scope="col">A → B (kb/s)</th><th scope="col">B → A (kb/s)</th><th scope="col">Both (kb/s)</th><th scope="col">Both (pkt/s)</th><th scope="col">Median IP (B)</th></tr></thead><tbody><tr><th scope="row">plain-1</th><td>3,131</td><td>80</td><td>80</td><td>160</td><td>100</td><td>200</td></tr><tr><th scope="row">secure-1</th><td>8,058</td><td>84</td><td>84</td><td>168</td><td>100</td><td>210</td></tr><tr><th scope="row">plain-2</th><td>3,127</td><td>80</td><td>80</td><td>160</td><td>100</td><td>200</td></tr><tr><th scope="row">secure-2</th><td>8,050</td><td>84</td><td>84</td><td>168</td><td>100</td><td>210</td></tr><tr><th scope="row">plain-3</th><td>3,123</td><td>80</td><td>80</td><td>160</td><td>100</td><td>200</td></tr><tr><th scope="row">secure-3</th><td>8,054</td><td>84</td><td>84</td><td>168</td><td>100</td><td>210</td></tr></tbody></table>
+          </div>
+          <p class="reading">
+            Setup counts both directions. Media rates are decimal kilobits per second. Individual packet
+            counts, IP lengths and directional setup bytes are available in the
+            <a href="data/results.csv">results CSV</a>.
+          </p>
+          <details class="pad">
+            <summary>Inspect each call direction</summary>
+            <div class="scroll" tabindex="0" role="region" aria-label="Detailed directional results">
+              <table><thead><tr><th scope="col">Run and flow</th><th scope="col">Setup (B)</th><th scope="col">Audio packets</th><th scope="col">Packets/s</th><th scope="col">Median IP (B)</th><th scope="col">Steady kb/s</th></tr></thead><tbody><tr><th scope="row">plain-1 A→B</th><td>1,641</td><td>2,500</td><td>50</td><td>200</td><td>80</td></tr><tr><th scope="row">plain-1 B→A</th><td>1,490</td><td>2,500</td><td>50</td><td>200</td><td>80</td></tr><tr><th scope="row">plain-2 A→B</th><td>1,639</td><td>2,500</td><td>50</td><td>200</td><td>80</td></tr><tr><th scope="row">plain-2 B→A</th><td>1,488</td><td>2,500</td><td>50</td><td>200</td><td>80</td></tr><tr><th scope="row">plain-3 A→B</th><td>1,637</td><td>2,500</td><td>50</td><td>200</td><td>80</td></tr><tr><th scope="row">plain-3 B→A</th><td>1,486</td><td>2,500</td><td>50</td><td>200</td><td>80</td></tr><tr><th scope="row">secure-1 A→B</th><td>4,092</td><td>2,500</td><td>50</td><td>210</td><td>84</td></tr><tr><th scope="row">secure-1 B→A</th><td>3,966</td><td>2,500</td><td>50</td><td>210</td><td>84</td></tr><tr><th scope="row">secure-2 A→B</th><td>4,088</td><td>2,500</td><td>50</td><td>210</td><td>84</td></tr><tr><th scope="row">secure-2 B→A</th><td>3,962</td><td>2,500</td><td>50</td><td>210</td><td>84</td></tr><tr><th scope="row">secure-3 A→B</th><td>4,090</td><td>2,500</td><td>50</td><td>210</td><td>84</td></tr><tr><th scope="row">secure-3 B→A</th><td>3,964</td><td>2,500</td><td>50</td><td>210</td><td>84</td></tr></tbody></table>
+            </div>
+          </details>
+          <h3 class="subhead">Change in the group means</h3>
+          <div class="scroll" tabindex="0" role="region" aria-label="Mean changes in media and signaling">
+            <table><thead><tr><th scope="col">Quantity</th><th scope="col">Baseline</th><th scope="col">Secure</th><th scope="col">Absolute change</th><th scope="col">Change (%)</th></tr></thead><tbody><tr><th scope="row">Setup, both (B)</th><td>3,127</td><td>8,054</td><td>+4,927</td><td>+157.563%</td></tr><tr><th scope="row">Steady A → B (kb/s)</th><td>80</td><td>84</td><td>+4</td><td>+5%</td></tr><tr><th scope="row">Steady B → A (kb/s)</th><td>80</td><td>84</td><td>+4</td><td>+5%</td></tr><tr><th scope="row">Steady both (kb/s)</th><td>160</td><td>168</td><td>+8</td><td>+5%</td></tr><tr><th scope="row">A → B packets/s</th><td>50</td><td>50</td><td>0</td><td>0%</td></tr><tr><th scope="row">B → A packets/s</th><td>50</td><td>50</td><td>0</td><td>0%</td></tr><tr><th scope="row">Both packets/s</th><td>100</td><td>100</td><td>0</td><td>0%</td></tr><tr><th scope="row">Median IP packet (B)</th><td>200</td><td>210</td><td>+10</td><td>+5%</td></tr></tbody></table>
+          </div>
+          <p class="reading">
+            Absolute change = secure mean − baseline mean. Percent change divides that difference by the
+            baseline mean. Rounding affects displayed values only.
+            <a href="data/differences.csv">Full direction-by-direction differences</a> and <a href="data/paired-changes.csv">changes within each numbered pair</a>.
+          </p>
+          <h3 class="subhead">Variation and run quality</h3>
+          <div class="scroll" tabindex="0" role="region" aria-label="Between-call variation"><table><thead><tr><th scope="col">Group</th><th scope="col">Calls</th><th scope="col">Minimum</th><th scope="col">Maximum</th><th scope="col">Sample SD</th></tr></thead><tbody><tr><th scope="row">Baseline setup (B)</th><td>3</td><td>3,123</td><td>3,131</td><td>4</td></tr><tr><th scope="row">Baseline steady both (kb/s)</th><td>3</td><td>160</td><td>160</td><td>0</td></tr><tr><th scope="row">Secure setup (B)</th><td>3</td><td>8,050</td><td>8,058</td><td>4</td></tr><tr><th scope="row">Secure steady both (kb/s)</th><td>3</td><td>168</td><td>168</td><td>0</td></tr></tbody></table></div><p class="reading">tcpdump reported 0 kernel drops across the recordings. TShark flagged 0 TCP retransmissions. The steady windows contained 0 TCP packets and 18–20 RTCP/SRTCP packets per call. Both categories were excluded from steady audio. The capture log lists their observed IP bytes for each window. All six benchmark attempts completed and entered the comparison. The short starter and diagnostic calls are outside the series. <a href="data/runs.csv">Inspect every interval</a>.</p>
+          <h3 class="subhead">From samples to packet length</h3>
+          <p>The visible RTP timestamps advance by 160 ticks per consecutive packet in the steady streams. G.711 µ-law uses an 8 kHz clock and one byte per sample. This gives 160 bytes of sound per 20 ms packet, or 50 packets per second. The header audit found a 20-byte IPv4 header, 8-byte UDP header and 12-byte RTP header. <a href="#ref-audio">RTP and audio profile</a>.</p><p class="formula"><strong>Baseline prediction, one direction</strong><br>(160 + 20 + 8 + 12) bytes × 8 × 50 = 80,000 bit/s.</p><p>A separate answered diagnostic call on the same build and configuration reported <code>AES_CM_128_HMAC_SHA1_80</code> after libSRTP installed the stream policies. AES counter mode encrypts the payload without expanding it, and the HMAC-SHA1 authentication tag adds 80 bits (10 bytes) per RTP packet. All measured secure audio packets were 210 IPv4 bytes in the selected windows. The diagnostic establishes the profile for that configuration. The timed calls supply the independent wire-length and channel evidence. <a href="downloads/verification.txt">Installed policy parameters</a>, <a href="#ref-sdes">SDES protection profiles</a>.</p><p class="formula"><strong>Secure prediction, one direction</strong><br>(200 + 10) bytes × 8 × 50 = 84,000 bit/s. Across both directions the predicted increase is 8 kb/s.</p>
+          <h3 class="subhead">Wireshark I/O graph</h3>
+          <figure><a class="imagebox" href="evidence/io-graph.png" aria-label="Open full-size figure: One-second IPv4 media throughput"><img loading="lazy" src="evidence/io-graph.png" alt="One-second IPv4 media throughput"></a><figcaption><strong>One-second IPv4 media throughput.</strong> Baseline run 1 and secure run 1 are aligned to their first audio packets. The profile curves count audio in both directions. The marked interval from second 5 through the start of second 55 matches the CSV calculation. The exported values are bytes in each one-second bin. Wireshark multiplies them by 8 for the displayed bit/s. <a href="evidence/wireshark.md">Graph filters and alignment</a>, <a href="evidence/io-graph.csv">native CSV export</a>.</figcaption></figure>
+        </div>
+      </section>
+
+      <section id="assessment" class="chapter zone">
+        <div class="shell intro">
+          <h2>Assessment and conclusion</h2>
+          <div class="prose">
+            <h3>Contribution</h3>
+            <p>
+              The two-mode trunk, matched call generator and packet accounting script form a repeatable test.
+              Another student can inspect the IP length of an individual packet, trace its port pair to a
+              specific call, and recompute each published row. Checking the active media flag alongside the
+              TLS handshake resolves an ambiguity that a signaling screenshot alone would leave open.
+            </p>
+            <h3>Where the result applies</h3>
+            <p>
+              The steady-media result belongs to this codec, packet interval, IP version and SRTP negotiation.
+              A smaller packet interval spreads the same duration of sound across more authenticated packets.
+              Cold setup also depends on handshake flights, certificates, TCP segmentation and call headers.
+              This experiment changed TLS signaling and SDES media negotiation together. The cold byte
+              difference therefore includes both effects and their TCP acknowledgments.
+            </p>
+            <p>
+              All calls shared a quiet virtual bridge on one host. The sample captures variation under these
+              conditions and provides no estimate of WAN jitter, carrier loss, CPU cost or user-perceived
+              voice quality. A long-lived trunk could reuse its TLS connection across calls and incur the full
+              handshake less often.
+            </p>
+            <h3>Conclusion</h3>
+            <p>Securing this trunk changed the combined steady rate by <strong>+8 kb/s</strong> (+5%). Cold setup averaged 3,127 IPv4 bytes in the baseline and 8,054 with TLS and SDES, a change of +4,927 bytes (+157.563%). For a full-duplex link carrying this codec, start the media budget at 84 kb/s per active call in each direction. Allow additional capacity for control packets and link framing. Estimate cold setup from the number of new connections the trunk actually opens.</p>
+          </div>
+        </div>
+      </section>
+
+      <section id="downloads" class="chapter">
+        <div class="shell">
+          <header class="chapter-header">
+            <h2>Evidence and reproduction</h2>
+            <p>
+              The local website works with the PBXs stopped. These files support independent inspection of the
+              measurements.
+            </p>
+          </header>
+          <ul class="resource-list">
+            <li>
+              <a href="downloads/captures.zip">Experiment captures</a
+              ><small>Full-packet tcpdump files for both modes.</small>
+            </li>
+            <li>
+              <a href="data/results.csv">Results CSV</a
+              ><small>One row per run and direction, including the combined flow.</small>
+            </li>
+            <li>
+              <a href="data/runs.csv">Run log</a
+              ><small>Call identifiers, capture times, window boundaries and anomalies.</small>
+            </li>
+            <li>
+              <a href="downloads/run-logs.zip">Call and capture logs</a
+              ><small>Runtime evidence for the two PJSIP channels.</small>
+            </li>
+            <li>
+              <a href="downloads/lab-source.tar.gz">Lab and analysis source</a
+              ><small>Editable setup and tools to reproduce the experiment.</small>
+            </li>
+            <li>
+              <a href="downloads/reproduce.md">Reproduction guide</a
+              ><small>Run the experiment, regenerate the CSVs and inspect the recordings.</small>
+            </li>
+            <li>
+              <a href="downloads/verification.txt">Runtime verification</a
+              ><small>Build, transport and certificate checks.</small>
+            </li>
+            <li>
+              <a href="data/summary.csv">Summary statistics</a
+              ><small>Group means, ranges and sample standard deviations.</small>
+            </li>
+          </ul>
+        </div>
+      </section>
+      <section id="references" class="chapter zone">
+        <div class="shell">
+          <header class="chapter-header"><h2>References</h2></header>
+          <ol class="references">
+            <li id="ref-sip">
+              IETF. <a href="https://www.rfc-editor.org/rfc/rfc3261.html">RFC 3261, SIP</a> and
+              <a href="https://www.rfc-editor.org/rfc/rfc8866.html">RFC 8866, SDP</a>.
+            </li>
+            <li id="ref-pjsip">
+              Asterisk Project.
+              <a
+                href="https://docs.asterisk.org/Certified-Asterisk_22.8_Documentation/API_Documentation/Module_Configuration/res_pjsip/"
+                >Certified Asterisk 22.8 PJSIP configuration</a
+              >
+              and
+              <a
+                href="https://docs.asterisk.org/Certified-Asterisk_22.8_Documentation/API_Documentation/Dialplan_Functions/CHANNEL/"
+                >CHANNEL dialplan function</a
+              >.
+            </li>
+            <li id="ref-sdes">
+              IETF.
+              <a href="https://www.rfc-editor.org/rfc/rfc4568.html"
+                >RFC 4568, SDP Security Descriptions for Media Streams</a
+              >.
+            </li>
+            <li id="ref-srtp">
+              IETF.
+              <a href="https://www.rfc-editor.org/rfc/rfc3711.html"
+                >RFC 3711, Secure Real-time Transport Protocol</a
+              >.
+            </li>
+            <li id="ref-audio">
+              IETF. <a href="https://www.rfc-editor.org/rfc/rfc3550.html">RFC 3550, RTP</a> and
+              <a href="https://www.rfc-editor.org/rfc/rfc3551.html">RFC 3551, RTP audio and video profile</a>.
+            </li>
+            <li id="ref-tls">
+              IETF.
+              <a href="https://www.rfc-editor.org/rfc/rfc9325.html"
+                >RFC 9325, Recommendations for Secure Use of TLS and DTLS</a
+              >.
+            </li>
+            <li id="ref-webrtc">
+              IETF.
+              <a href="https://www.rfc-editor.org/rfc/rfc8827.html">RFC 8827, WebRTC Security Architecture</a
+              >.
+            </li>
+            <li id="ref-ip">
+              IETF. <a href="https://www.rfc-editor.org/rfc/rfc791.html">RFC 791, Internet Protocol</a>, §3.1.
+            </li>
+            <li>
+              Wireshark Foundation.
+              <a href="https://www.wireshark.org/docs/wsug_html_chunked/ChTelRTP.html"
+                >RTP streams and playback</a
+              >
+              and
+              <a href="https://www.wireshark.org/docs/wsug_html_chunked/ChStatIOGraphs.html">I/O Graphs</a>.
+            </li>
+            <li>
+              Filip Řezáč. <cite>VoIP I Assignment of the Semestral Project</cite>, VŠB–TU Ostrava, 26 August
+              2024, Topic 1 and §2.
+            </li>
+          </ol>
+        </div>
+      </section>
+    </main>
+    <footer>
+      <div class="shell foot"><span>Daniel Alves · VŠB–TUO · VoIP I</span><a href="#top">Back to top</a></div>
+    </footer>
+  </body>
+</html>
