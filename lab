@@ -1,0 +1,209 @@
+#!/usr/bin/env python3
+"""Start the two PBXs and follow one originated call through both dialplans."""
+
+import argparse
+import fcntl
+import os
+from pathlib import Path
+import secrets
+import shutil
+import subprocess
+import sys
+import tempfile
+import time
+
+
+ROOT = Path(__file__).resolve().parent
+STATE = ROOT / ".lab"
+WORK = ROOT / "work"
+NODES = ("pbx-a", "pbx-b")
+
+
+def compose(*args, output=False, mode=None):
+    env = os.environ.copy()
+    mode = mode or saved_mode()
+    if mode in ("plain", "secure"):
+        env["LAB_MODE"] = mode
+    result = subprocess.run(
+        ["docker", "compose", *args], cwd=ROOT, env=env, check=True,
+        stdout=subprocess.PIPE if output else None, text=True,
+    )
+    return result.stdout
+
+
+def cli(node, command):
+    return compose("exec", "-T", node, "asterisk", "-rx", command, output=True)
+
+
+def saved_mode():
+    path = STATE / "mode"
+    return path.read_text().strip() if path.is_file() else ""
+
+
+def selected_mode():
+    mode = saved_mode()
+    if mode in ("plain", "secure"):
+        return mode
+    raise SystemExit("Start the lab with ./lab up plain or ./lab up secure.")
+
+
+def copy_starter():
+    with tempfile.TemporaryDirectory(dir=STATE) as staging:
+        tree = Path(staging) / "work"
+        shutil.copytree(ROOT / "starter", tree)
+        tree.rename(WORK)
+
+
+def start(mode):
+    if not WORK.exists():
+        copy_starter()
+    if not (STATE / "pki").exists():
+        subprocess.run(["sh", ROOT / "scripts/make-certs", STATE], check=True)
+    # Build once for both nodes. Subsequent launches can use the cached image offline.
+    image = compose("config", "--images", output=True).splitlines()[0]
+    inspect = subprocess.run(["docker", "image", "inspect", image],
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    if inspect.returncode:
+        compose("build", "pbx-a")
+    down()
+    (STATE / "mode").write_text(mode + "\n")
+    compose("up", "-d", "--no-build", "--pull", "never", "--wait",
+            "--wait-timeout", "65", mode=mode)
+    print(f"Both peers are ready in {mode} mode. Run ./lab call.")
+
+
+def down():
+    compose("down", "--volumes")
+
+
+def reset():
+    down()
+    if WORK.exists():
+        backups = STATE / "backups"
+        backups.mkdir(parents=True, exist_ok=True)
+        saved = backups / f"work-{time.time_ns()}"
+        WORK.rename(saved)
+        print(f"Saved your configuration in {saved.relative_to(ROOT)}")
+    if (STATE / "pki").exists():
+        shutil.rmtree(STATE / "pki")
+    (STATE / "mode").unlink(missing_ok=True)
+    copy_starter()
+    print("Starter configuration restored. Run ./lab up plain for fresh certificates.")
+
+
+def status():
+    compose("ps")
+    for node in NODES:
+        print(f"\n{node}")
+        print(cli(node, "core show version").strip())
+        for line in cli(node, "pjproject show buildopts").splitlines():
+            if line.startswith(("PJ_HAS_SSL_SOCK ", "PJ_VERSION ")):
+                print(line)
+        for module in ("chan_pjsip.so", "res_pjsip_sdp_rtp.so", "res_srtp.so"):
+            for line in cli(node, "module show like " + module).splitlines():
+                if line.startswith(module):
+                    print(line)
+        print(cli(node, "pjsip show transports").strip())
+        for line in cli(node, "pjsip show endpoint peer").splitlines():
+            name = line.partition(":")[0].strip()
+            if name in ("allow", "direct_media", "media_encryption",
+                        "media_encryption_optimistic", "use_ptime"):
+                print(line.strip())
+
+
+def media_rows(node):
+    # Read only the dialplan's small set of public fields. A unique caller tag
+    # and the SIP Call-ID separate this attempt from earlier or overlapping calls.
+    logs = compose("logs", "--no-color", "--no-log-prefix", "--tail", "100", node, output=True)
+    for line in logs.splitlines():
+        _, found, rest = line.partition("LAB-MEDIA ")
+        if found:
+            yield dict(item.split("=", 1) for item in rest.split() if "=" in item)
+
+
+def show_leg(node, row, mode):
+    fields = ("channel", "tls", "srtp", "codec", "remote", "tx", "rx")
+    print(node, *(f"{key}={row.get(key, '?')}" for key in fields), flush=True)
+    expected = "1" if mode == "secure" else "0"
+    if (row.get("tls"), row.get("srtp")) != (expected, expected):
+        raise SystemExit(f"{node} negotiated unexpected protection for {mode} mode.")
+    if not all(row.get(key, "").isdigit() and int(row[key]) > 0 for key in ("tx", "rx")):
+        raise SystemExit(f"{node} did not report media packets in both directions.")
+
+
+def active(node, channel):
+    return any(line.partition("!")[0] == channel
+               for line in cli(node, "core show channels concise").splitlines())
+
+
+def call():
+    mode = selected_mode()
+    tag = str(10**15 + secrets.randbelow(9 * 10**15))
+    print("Dialing 200 on pbx-b from pbx-a …", flush=True)
+    cli("pbx-a", f"channel originate PJSIP/200@peer extension {tag}@caller-tone")
+    deadline = time.monotonic() + 35
+    while time.monotonic() < deadline:
+        caller = next((row for row in media_rows("pbx-a") if row.get("tag") == tag), None)
+        if caller and caller.get("id"):
+            callee = next((row for row in media_rows("pbx-b") if row.get("id") == caller["id"]
+                           and row.get("tag") == "inbound"), None)
+            if callee:
+                print(f"Answered on both peers. SIP Call-ID {caller['id']}")
+                show_leg("pbx-a", caller, mode)
+                show_leg("pbx-b", callee, mode)
+                while active("pbx-a", caller["channel"]) or active("pbx-b", callee["channel"]):
+                    time.sleep(0.7)
+                print("Both legs hung up.")
+                return
+        time.sleep(0.7)
+    raise SystemExit("No matching pair of answered media checks within 35 seconds. "
+                     "Run ./lab status and inspect docker compose logs pbx-b.")
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    commands = parser.add_subparsers(dest="command", required=True)
+    commands.add_parser("up", help="start or switch both peers").add_argument("mode", choices=("plain", "secure"))
+    commands.add_parser("restart", help="apply edits in the selected mode")
+    commands.add_parser("down", help="stop both peers and remove the private bridge")
+    commands.add_parser("reset", help="stop, save edits, and restore starter configuration")
+    commands.add_parser("call", help="dial the peer and check both call legs")
+    commands.add_parser("status", help="inspect the build, transport, and media policy on each peer")
+    commands.add_parser("cli", help="open an Asterisk CLI").add_argument("node", choices=("a", "b"))
+    commands.add_parser("compose", help="pass arguments to Docker Compose")
+    argv = sys.argv[1:]
+    args = parser.parse_args(argv[:1] if argv[:1] == ["compose"] else argv)
+    # On a host provisioned with a project-local Docker engine, use its client
+    # when Docker is absent from PATH. A regular Docker installation takes priority.
+    if not shutil.which("docker"):
+        private_bin = STATE / "bin"
+        if not (private_bin / "docker").is_file():
+            sys.exit("Docker with the Compose plugin is required. See README.md under Quick start.")
+        os.environ["PATH"] = str(private_bin) + os.pathsep + os.environ["PATH"]
+    if args.command in ("up", "restart", "down", "reset"):
+        STATE.mkdir(exist_ok=True, mode=0o700)
+        with (STATE / "lifecycle.lock").open("a") as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            if args.command == "up":
+                start(args.mode)
+            elif args.command == "restart":
+                start(selected_mode())
+            else:
+                {"down": down, "reset": reset}[args.command]()
+    elif args.command == "cli":
+        compose("exec", f"pbx-{args.node}", "asterisk", "-r")
+    elif args.command == "compose":
+        compose(*argv[1:])
+    else:
+        {"call": call, "status": status}[args.command]()
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except FileNotFoundError as error:
+        sys.exit(f"Missing file or command: {error.filename}")
+    except subprocess.CalledProcessError as error:
+        sys.exit(error.returncode)
+    except KeyboardInterrupt:
+        sys.exit(130)

@@ -1,0 +1,41 @@
+NAME                   IMAGE                     COMMAND                  SERVICE   CREATED         STATUS                   PORTS
+vsb-voip-lab-pbx-a-1   vsb-voip-lab:22.8-cert5   "/bin/sh /usr/local/…"   pbx-a     6 seconds ago   Up 6 seconds (healthy)   
+vsb-voip-lab-pbx-b-1   vsb-voip-lab:22.8-cert5   "/bin/sh /usr/local/…"   pbx-b     6 seconds ago   Up 6 seconds (healthy)   
+
+pbx-a
+Asterisk certified-22.8-cert5 built by root @ buildkitsandbox on a x86_64 running Linux on 2026-11-12 16:35:33 UTC
+PJ_HAS_SSL_SOCK           : 1
+PJ_VERSION                : 2.15.1
+chan_pjsip.so                  PJSIP Channel Driver                     0          Running              core
+res_pjsip_sdp_rtp.so           PJSIP SDP RTP/AVP stream handler         0          Running              core
+res_srtp.so                    Secure RTP (SRTP)                        0          Running              core
+Transport:  <TransportId........>  <Type>  <cos>  <tos>  <BindAddress....................>
+==========================================================================================
+
+Transport:  link                      tls      0      0  172.30.76.10:5061
+
+Objects found: 1
+allow                              : (ulaw)
+direct_media                       : false
+media_encryption                   : sdes
+media_encryption_optimistic        : false
+use_ptime                          : true
+
+pbx-b
+Asterisk certified-22.8-cert5 built by root @ buildkitsandbox on a x86_64 running Linux on 2026-11-12 16:35:33 UTC
+PJ_HAS_SSL_SOCK           : 1
+PJ_VERSION                : 2.15.1
+chan_pjsip.so                  PJSIP Channel Driver                     0          Running              core
+res_pjsip_sdp_rtp.so           PJSIP SDP RTP/AVP stream handler         0          Running              core
+res_srtp.so                    Secure RTP (SRTP)                        0          Running              core
+Transport:  <TransportId........>  <Type>  <cos>  <tos>  <BindAddress....................>
+==========================================================================================
+
+Transport:  link                      tls      0      0  172.30.76.11:5061
+
+Objects found: 1
+allow                              : (ulaw)
+direct_media                       : false
+media_encryption                   : sdes
+media_encryption_optimistic        : false
+use_ptime                          : true

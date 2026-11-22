@@ -1,0 +1,3 @@
+"Enabled","Plain media","frame.interface_id == 0","#007d77","Line","THROUGHPUT(Y Field)","ip.len","None","8","false"
+"Enabled","Secure media","frame.interface_id == 1","#bb5325","Line","THROUGHPUT(Y Field)","ip.len","None","8","false"
+"Enabled","Window [5,55) s","frame.interface_id == 0 && frame.time_relative >= 5 && frame.time_relative < 55","#164e63","Circle","THROUGHPUT(Y Field)","ip.len","None","8","false"

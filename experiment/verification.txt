@@ -1,0 +1,68 @@
+Verified at 2026-11-22T01:01:41Z
+pbx-a TLS transport and certificate
+ method                      : tlsv1_2
+ protocol                    : tls
+ require_client_cert         : Yes
+ verify_client               : Yes
+ verify_server               : Yes
+subject=CN=pbx-a.lab.test
+issuer=CN=VSB VoIP disposable lab CA
+notBefore=Nov 18 14:02:41 2026 GMT
+notAfter=Dec 18 14:02:41 2026 GMT
+X509v3 Subject Alternative Name: 
+    DNS:pbx-a.lab.test, IP Address:172.30.76.10
+sha256 Fingerprint=6C:35:5F:CA:C9:A8:20:80:43:35:7F:DA:5B:58:6D:D6:EF:10:FA:5F:37:3A:1B:4C:61:B1:BC:64:52:29:34:E4
+.lab/pki/a/node.crt: OK
+.lab/pki/a/node.crt: OK
+pbx-b TLS transport and certificate
+ method                      : tlsv1_2
+ protocol                    : tls
+ require_client_cert         : Yes
+ verify_client               : Yes
+ verify_server               : Yes
+subject=CN=pbx-b.lab.test
+issuer=CN=VSB VoIP disposable lab CA
+notBefore=Nov 18 14:02:41 2026 GMT
+notAfter=Dec 18 14:02:41 2026 GMT
+X509v3 Subject Alternative Name: 
+    DNS:pbx-b.lab.test, IP Address:172.30.76.11
+sha256 Fingerprint=07:EA:5D:D0:5F:51:9C:E4:9C:05:29:09:28:73:B9:0A:92:0D:59:5A:74:64:F1:92:DF:BE:B5:30:94:D1:9B:08
+.lab/pki/b/node.crt: OK
+.lab/pki/b/node.crt: OK
+Live authenticated TLS connection A to B
+Connecting to 172.30.76.11
+CONNECTION ESTABLISHED
+Protocol version: TLSv1.2
+Ciphersuite: ECDHE-RSA-AES256-GCM-SHA384
+Requested Signature Algorithms: ECDSA+SHA256:ECDSA+SHA384:ECDSA+SHA512:ed25519:ed448:rsa_pss_pss_sha256:rsa_pss_pss_sha384:rsa_pss_pss_sha512:RSA-PSS+SHA256:RSA-PSS+SHA384:RSA-PSS+SHA512:RSA+SHA256:RSA+SHA384:RSA+SHA512:ECDSA+SHA224:RSA+SHA224:DSA+SHA224:DSA+SHA256:DSA+SHA384:DSA+SHA512
+Peer certificate: CN=pbx-b.lab.test
+Hash used: SHA256
+Signature type: rsa_pss_rsae_sha256
+Verification: OK
+Verified peername: pbx-b.lab.test
+Supported Elliptic Curve Point Formats: uncompressed:ansiX962_compressed_prime:ansiX962_compressed_char2
+Peer Temp Key: X25519, 253 bits
+DONE
+B rejects a TLS client without its certificate
+80F7819B0D7F0000:error:0A000410:SSL routines:ssl3_read_bytes:ssl/tls alert handshake failure:../ssl/record/rec_layer_s3.c:918:SSL alert number 40
+Supplemental call with read-only reporting of installed SRTP policy parameters
+libsrtp2-1:amd64	2.7.0-3
+Dialing 200 on pbx-b from pbx-a …
+Answered on both peers. SIP Call-ID 24d48b5e-3691-480a-a8e2-add74897bcd7
+pbx-a channel=PJSIP/peer-00000000 tls=1 srtp=1 codec=(ulaw) remote=172.30.76.11:10022 tx=100 rx=98
+pbx-b channel=PJSIP/peer-00000000 tls=1 srtp=1 codec=(ulaw) remote=172.30.76.10:10030 tx=100 rx=101
+Both legs hung up.
+pbx-a
+pbx-a-1  | LAB-POLICY RTP cipher_id=1 auth_id=3 tag_bytes=10 services=3 profile=AES_CM_128_HMAC_SHA1_80
+pbx-b
+pbx-b-1  | LAB-POLICY RTP cipher_id=1 auth_id=3 tag_bytes=10 services=3 profile=AES_CM_128_HMAC_SHA1_80
+Authenticated TLS with plaintext-only audio offered by A
+pbx-a
+ media_encryption                   : no
+pbx-b
+ media_encryption                   : sdes
+pbx-b-1  | [2026-11-22 01:02:08] ERROR[35]: res_pjsip_session.c:947 handle_incoming_sdp:  peer: Couldn't negotiate stream 0:audio-0:audio:sendrecv (nothing)
+A dials the correct IP using a DNS name outside B’s certificate
+    Contact:  peer/sip:pbx-b:5061;transport=tls            284393eaa8 NonQual        -nan
+ contact              : sip:pbx-b:5061;transport=tls
+pbx-a-1  | [2026-11-22 01:02:17] ERROR[40]: res_pjsip/pjsip_transport_events.c:190 verify_log_result: Transport 'link' to remote 'pbx-b' - 172.30.76.11:5061 - The server identity does not match to any identities specified in the certificate

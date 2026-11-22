@@ -1,0 +1,7 @@
+call_command_started_utc=2026-11-22T00:56:06.478275766Z
+Dialing 200 on pbx-b from pbx-a …
+Answered on both peers. SIP Call-ID 5f7d5ad1-9146-4b6b-a5d4-4e53180363a9
+pbx-a channel=PJSIP/peer-00000000 tls=0 srtp=0 codec=(ulaw) remote=172.30.76.11:10034 tx=100 rx=98
+pbx-b channel=PJSIP/peer-00000000 tls=0 srtp=0 codec=(ulaw) remote=172.30.76.10:10034 tx=100 rx=101
+Both legs hung up.
+call_command_finished_utc=2026-11-22T00:57:09.428639569Z

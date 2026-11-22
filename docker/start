@@ -1,0 +1,20 @@
+#!/bin/sh
+set -eu
+
+case "$LAB_MODE" in plain|secure) ;; *) exit 2 ;; esac
+if [ "$LAB_MODE" = secure ]; then
+    # Only the node's identity is mounted. Asterisk runs as an unprivileged user.
+    install -d -o asterisk -g asterisk -m 0700 /run/asterisk/tls
+    for file in ca.crt node.crt node.key; do
+        install -o asterisk -g asterisk -m 0400 "/identity/$file" "/run/asterisk/tls/$file"
+    done
+fi
+
+cp /lab/common/*.conf /etc/asterisk/
+render() {
+    sed -e "s/@LOCAL_IP@/$LOCAL_IP/g" -e "s/@PEER_IP@/$PEER_IP/g" \
+        -e "s/@PEER_NAME@/$PEER_NAME/g" "$1" > "$2"
+}
+render /lab/common/pjsip.conf /etc/asterisk/pjsip.conf
+render "/lab/profiles/$LAB_MODE.conf" /etc/asterisk/link.conf
+exec /usr/sbin/asterisk -f -n -U asterisk -G asterisk

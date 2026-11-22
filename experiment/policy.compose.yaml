@@ -1,0 +1,9 @@
+# Supplemental verification only. The six timed calls use compose.yaml alone.
+x-policy: &policy
+  environment:
+    LD_PRELOAD: /opt/lab-verify-policy.so
+  volumes:
+    - ./.lab/verify-policy.so:/opt/lab-verify-policy.so:ro
+services:
+  pbx-a: *policy
+  pbx-b: *policy

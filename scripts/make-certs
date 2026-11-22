@@ -1,0 +1,37 @@
+#!/bin/sh
+# Publish both identities together. The CA signing key exists only during setup.
+set -eu
+umask 077
+state=$1
+staging=$(mktemp -d "$state/issue.XXXXXXXX")
+trap 'rm -rf "$staging"' EXIT
+trap 'exit 1' HUP INT TERM
+cd "$staging"
+mkdir -p identities/a identities/b
+
+openssl genrsa -out ca.key 2048
+openssl req -new -x509 -sha256 -key ca.key -out ca.crt -days 90 \
+    -subj '/CN=VSB VoIP disposable lab CA' \
+    -addext 'basicConstraints=critical,CA:TRUE,pathlen:0' \
+    -addext 'keyUsage=critical,keyCertSign,cRLSign'
+
+issue() {
+    dir="identities/$1"
+    name="pbx-$1.lab.test"
+    cat > leaf.ext <<EOF
+basicConstraints=critical,CA:FALSE
+keyUsage=critical,digitalSignature,keyEncipherment
+extendedKeyUsage=serverAuth,clientAuth
+subjectAltName=DNS:$name,IP:$2
+EOF
+    openssl genrsa -out "$dir/node.key" 2048
+    openssl req -new -key "$dir/node.key" -subj "/CN=$name" -out request.csr
+    openssl x509 -req -in request.csr -CA ca.crt -CAkey ca.key -set_serial "$3" \
+        -out "$dir/node.crt" -days 30 -sha256 -extfile leaf.ext
+    cp ca.crt "$dir/ca.crt"
+    openssl verify -CAfile ca.crt -purpose sslserver -verify_hostname "$name" "$dir/node.crt"
+    openssl verify -CAfile ca.crt -purpose sslclient "$dir/node.crt"
+}
+issue a 172.30.76.10 1
+issue b 172.30.76.11 2
+mv identities "$state/pki"

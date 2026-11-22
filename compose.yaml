@@ -1,0 +1,57 @@
+name: vsb-voip-lab
+
+x-pbx: &pbx
+  image: vsb-voip-lab:22.8-cert5
+  build: ./docker
+  security_opt:
+    - no-new-privileges:true
+  healthcheck:
+    test:
+      - CMD-SHELL
+      - >-
+        asterisk -rx 'pjsip show transports' | grep -Eq 'Transport:[[:space:]]+link[[:space:]]'
+        && asterisk -rx 'pjsip show endpoints' | grep -Eq 'Endpoint:[[:space:]]+peer[[:space:]/]'
+    interval: 2s
+    timeout: 4s
+    retries: 15
+
+services:
+  pbx-a:
+    <<: *pbx
+    hostname: pbx-a.lab.test
+    environment:
+      LAB_MODE: ${LAB_MODE:-plain}
+      LOCAL_IP: 172.30.76.10
+      PEER_IP: 172.30.76.11
+      PEER_NAME: pbx-b.lab.test
+    volumes:
+      - ./work:/lab:ro
+      - ./.lab/pki/a:/identity:ro
+    networks:
+      trunk:
+        ipv4_address: 172.30.76.10
+        aliases: [pbx-a.lab.test]
+
+  pbx-b:
+    <<: *pbx
+    hostname: pbx-b.lab.test
+    environment:
+      LAB_MODE: ${LAB_MODE:-plain}
+      LOCAL_IP: 172.30.76.11
+      PEER_IP: 172.30.76.10
+      PEER_NAME: pbx-a.lab.test
+    volumes:
+      - ./work:/lab:ro
+      - ./.lab/pki/b:/identity:ro
+    networks:
+      trunk:
+        ipv4_address: 172.30.76.11
+        aliases: [pbx-b.lab.test]
+
+networks:
+  trunk:
+    internal: true
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.30.76.0/28
